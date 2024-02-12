@@ -4,8 +4,9 @@ const path = require("path");
 const bodyParser = require("body-parser");
 const faceapi = require("face-api.js");
 const canvas = require("canvas");
+const User = require("./model/user")
+const connectDB = require("./db")
 const { createCanvas, loadImage, Canvas, Image, ImageData } = require("canvas");
-const { promisify } = require("util");
 
 const app = express();
 const PORT = 5000;
@@ -30,7 +31,6 @@ async function loadLabeledFaceDescriptors() {
   // Read the contents of the labels directory
   const labels = fs
     .readdirSync(labelsDirectory)
-    // Filter out only directories
     .filter((item) =>
       fs.statSync(path.join(labelsDirectory, item)).isDirectory()
     );
@@ -39,17 +39,17 @@ async function loadLabeledFaceDescriptors() {
   try {
     labeledFaceDescriptors = await Promise.all(
       labels.map(async (label) => {
-        const descriptorsFilePath = path.join(
-          __dirname,
-          `../labels/${label}/descriptors.json`
-        );
         let descriptions = [];
-        if (fs.existsSync(descriptorsFilePath)) {
-          console.log(`Loading descriptors for ${label} from file...`);
-          const descriptiorsData = fs.readFileSync(descriptorsFilePath, "utf8");
-          descriptions = JSON.parse(descriptiorsData).map(
-            (descriptor) => new Float32Array(Object.values(descriptor))
-          );
+
+        const user = await User.findOne({ username: label });
+        if (user) {
+          console.log(`${label} is found`);
+
+          const input = user.faceDescriptors.toObject().map(obj => {
+            return new Float32Array(Object.keys(obj).map(key => obj[key]));
+          })
+
+          return new faceapi.LabeledFaceDescriptors(label, input);
         } else {
           console.log(
             `Descriptors JSON file not found for ${label}, loading images...`
@@ -62,18 +62,16 @@ async function loadLabeledFaceDescriptors() {
               .detectSingleFace(imageElement)
               .withFaceLandmarks()
               .withFaceDescriptor();
-            descriptions.push(detections.descriptor);
+              descriptions.push(detections.descriptor);
           }
-          fs.writeFileSync(descriptorsFilePath, JSON.stringify(descriptions));
-          console.log(`Descriptors for ${label} written to file`);
+          await User.create({ username: label, faceDescriptors: descriptions });
+          console.log(`Descriptors for ${label} written to database`);
+          return new faceapi.LabeledFaceDescriptors(label, descriptions);
         }
-        console.log("labelled face descriptiors are loaded");
-        return new faceapi.LabeledFaceDescriptors(label, descriptions);
       })
     );
   } catch (error) {
     console.error("Error loading labeled face descriptors:", error);
-    // Handle or re-throw the error as needed
     throw error;
   }
 }
@@ -94,12 +92,13 @@ async function convertJpgToImageElement(jpgPath) {
   }
 }
 
-// Load models and labeled face descriptors when the server starts
+// Connect to MongoDB, load models and labeled face descriptors when the server starts
 async function startServer() {
   try {
+    await connectDB()
     await loadModels();
     await loadLabeledFaceDescriptors();
-    // Start the server after loading models and labeled face descriptors
+    // Start the server after loading models and labeled face descriptors and connected to database
     app.listen(PORT, () => {
       console.log(`Server is running on port ${PORT}`);
     });
