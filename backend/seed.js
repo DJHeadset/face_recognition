@@ -3,9 +3,10 @@ const fs = require("fs");
 const path = require("path");
 const bodyParser = require("body-parser");
 const faceapi = require("face-api.js");
-const User = require("./model/user")
-const connectDB = require("./db")
+const User = require("./model/user");
+const connectDB = require("./db");
 const { Canvas, Image, ImageData } = require("canvas");
+const { default: mongoose } = require("mongoose");
 
 const app = express();
 app.use(bodyParser.json());
@@ -24,18 +25,18 @@ faceapi.env.monkeyPatch({ Canvas, Image, ImageData });
 let labeledFaceDescriptors; // Store labeled face descriptors globally
 
 async function convertJpgToImageElement(jpgPath) {
-    try {
-      const imageData = await fs.promises.readFile(jpgPath);
-      const img = new Image();
-  
-      img.src = imageData;
-  
-      return img;
-    } catch (error) {
-      console.error("Error converting JPG to HTMLImageElement:", error);
-      throw error;
-    }
+  try {
+    const imageData = await fs.promises.readFile(jpgPath);
+    const img = new Image();
+
+    img.src = imageData;
+
+    return img;
+  } catch (error) {
+    console.error("Error converting JPG to HTMLImageElement:", error);
+    throw error;
   }
+}
 
 async function loadLabeledFaceDescriptors() {
   const labelsDirectory = path.join(__dirname, "../labels");
@@ -57,12 +58,13 @@ async function loadLabeledFaceDescriptors() {
         if (user) {
           console.log(`${label} is found`);
           //Convert object into Array32
-          const input = user.faceDescriptors.toObject().map(obj => {
-            return new Float32Array(Object.keys(obj).map(key => obj[key]));
-          })
+          const input = user.faceDescriptors.toObject().map((obj) => {
+            return new Float32Array(Object.keys(obj).map((key) => obj[key]));
+          });
 
           return new faceapi.LabeledFaceDescriptors(label, input);
-        } else { //if no data exist in database, find pictures in its folder and create faceDescriptor
+        } else {
+          //if no data exist in database, find pictures in its folder and create faceDescriptor
           console.log(
             `Descriptors JSON file not found for ${label}, loading images...`
           );
@@ -74,7 +76,7 @@ async function loadLabeledFaceDescriptors() {
               .detectSingleFace(imageElement)
               .withFaceLandmarks()
               .withFaceDescriptor();
-              descriptions.push(detections.descriptor);
+            descriptions.push(detections.descriptor);
           }
           await User.create({ username: label, faceDescriptors: descriptions });
           console.log(`Descriptors for ${label} written to database`);
@@ -88,17 +90,26 @@ async function loadLabeledFaceDescriptors() {
   }
 }
 
-
+async function closeConnection() {
+  try {
+    await mongoose.connection.close();
+    console.log("MongoDB connection closed.");
+    process.exit(0);
+  } catch (error) {
+    console.error("Error closing MongoDB connection:", error);
+    process.exit(1);
+  }
+}
 
 // Connect to MongoDB, load models and labeled face descriptors when the server starts
 async function startSeed() {
   try {
-    await connectDB()
+    await connectDB();
     await loadModels();
     await loadLabeledFaceDescriptors();
     // Start the server after loading models and labeled face descriptors and connected to database
-    console.log("Database updated")
-
+    console.log("Database updated");
+    await closeConnection();
   } catch (error) {
     console.error("Error starting server:", error);
   }
