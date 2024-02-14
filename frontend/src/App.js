@@ -4,16 +4,20 @@ const CameraStream = () => {
   const videoRef = useRef(null);
   const [streaming, setStreaming] = useState(false);
   const [frameCounter, setFrameCounter] = useState(0);
+  const [status, setStatus] = useState("login");
+  const [userName, setUserName] = useState("");
+  const [loggedIn, setLoggedIn] = useState("");
 
   const sendNextFrameIfNoName = async () => {
     try {
       const data = await captureFrame();
       if (data.names.length === 0) {
         console.log("No name found, sending another frame.");
+
         sendNextFrameIfNoName(); // Send next frame
-        setFrameCounter((prevCounter) => prevCounter + 1); // Increment frame counter
+        setFrameCounter((prevCounter) => prevCounter + 1);
       } else {
-        console.log("Name:", data.names[0]);
+        setLoggedIn(data.names[0]);
         stopStreaming(); // Stop streaming if name is returned
       }
     } catch (error) {
@@ -30,12 +34,12 @@ const CameraStream = () => {
     const dataUrl = canvas.toDataURL("image/jpeg");
 
     // Send the frame to the backend
-    const response = await fetch(`/api/frame`, {
+    const response = await fetch(`/api/${status}`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({ frameData: dataUrl }),
+      body: JSON.stringify({ frameData: dataUrl, name: userName }),
     });
 
     return response.json();
@@ -61,6 +65,18 @@ const CameraStream = () => {
     setStreaming(false);
   };
 
+  const handleNameChange = (name) => {
+    setUserName(name);
+  };
+
+  const handleStatusChange = () => {
+    if (status === "login") {
+      setStatus("register");
+    } else {
+      setStatus("login");
+    }
+  };
+
   const handleButtonClick = () => {
     if (streaming) {
       stopStreaming();
@@ -71,6 +87,19 @@ const CameraStream = () => {
 
   return (
     <div>
+      <h1>{status}</h1>
+
+      {status === "register" && (
+        <input
+          type="text"
+          placeholder="Name"
+          onChange={(e) => handleNameChange(e.target.value)}
+        />
+      )}
+      {status === "login" && <h2>User logged in: {loggedIn}</h2>}
+      <button onClick={handleStatusChange}>
+        {status === "login" ? "Register" : "Login"}
+      </button>
       <button onClick={handleButtonClick}>
         {streaming ? "Stop Streaming" : "Start Streaming"}
       </button>
